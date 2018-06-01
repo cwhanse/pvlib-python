@@ -6,6 +6,8 @@ irradiance, and total irradiance under various conditions.
 
 from __future__ import division
 
+import logging
+
 import datetime
 from collections import OrderedDict
 from functools import partial
@@ -17,7 +19,8 @@ from pvlib import tools
 from pvlib import solarposition
 from pvlib import atmosphere
 
-# see References section of grounddiffuse function
+pvl_logger = logging.getLogger('pvlib')
+
 SURFACE_ALBEDOS = {'urban': 0.18,
                    'grass': 0.20,
                    'fresh grass': 0.26,
@@ -30,8 +33,7 @@ SURFACE_ALBEDOS = {'urban': 0.18,
                    'aluminum': 0.85,
                    'copper': 0.74,
                    'fresh steel': 0.35,
-                   'dirty steel': 0.08,
-                   'sea': 0.06}
+                   'dirty steel': 0.08}
 
 
 def extraradiation(datetime_or_doy, solar_constant=1366.1, method='spencer',
@@ -343,6 +345,8 @@ def total_irrad(surface_tilt, surface_azimuth,
         'poa_sky_diffuse', 'poa_ground_diffuse'``.
     """
 
+    pvl_logger.debug('planeofarray.total_irrad()')
+
     solar_zenith = apparent_zenith
     solar_azimuth = azimuth
 
@@ -471,8 +475,8 @@ def grounddiffuse(surface_tilt, ghi, albedo=.25, surface_type=None):
 
     surface_type: None or string, default None
         If not None, overrides albedo. String can be one of ``'urban',
-        'grass', 'fresh grass', 'snow', 'fresh snow', 'asphalt', 'concrete',
-         'aluminum', 'copper', 'fresh steel', 'dirty steel', 'sea'``.
+        'grass', 'fresh grass', 'snow', 'fresh snow', 'asphalt',
+        'concrete', 'aluminum', 'copper', 'fresh steel', 'dirty steel'``.
 
     Returns
     -------
@@ -489,15 +493,17 @@ def grounddiffuse(surface_tilt, ghi, albedo=.25, surface_type=None):
     The calculation is the last term of equations 3, 4, 7, 8, 10, 11, and 12.
 
     [2] albedos from:
-    http://files.pvsyst.com/help/albedo.htm
+    http://pvpmc.org/modeling-steps/incident-irradiance/plane-of-array-poa-irradiance/calculating-poa-irradiance/poa-ground-reflected/albedo/
     and
     http://en.wikipedia.org/wiki/Albedo
-    and
-    https://doi.org/10.1175/1520-0469(1972)029<0959:AOTSS>2.0.CO;2
     '''
+
+    pvl_logger.debug('diffuse_ground.get_diffuse_ground()')
 
     if surface_type is not None:
         albedo = SURFACE_ALBEDOS[surface_type]
+        pvl_logger.info('surface_type=%s mapped to albedo=%s',
+                        surface_type, albedo)
 
     diffuse_irrad = ghi * albedo * (1 - np.cos(np.radians(surface_tilt))) * 0.5
 
@@ -548,6 +554,8 @@ def isotropic(surface_tilt, dhi):
     [2] Hottel, H.C., Woertz, B.B., 1942. Evaluation of flat-plate solar
     heat collector. Trans. ASME 64, 91.
     '''
+
+    pvl_logger.debug('diffuse_sky.isotropic()')
 
     sky_diffuse = dhi * (1 + tools.cosd(surface_tilt)) * 0.5
 
@@ -619,6 +627,8 @@ def klucher(surface_tilt, surface_azimuth, dhi, ghi, solar_zenith,
     [2] Klucher, T.M., 1979. Evaluation of models to predict insolation on
     tilted surfaces. Solar Energy 23 (2), 111-114.
     '''
+
+    pvl_logger.debug('diffuse_sky.klucher()')
 
     # zenith angle with respect to panel normal.
     cos_tt = aoi_projection(surface_tilt, surface_azimuth,
@@ -708,6 +718,8 @@ def haydavies(surface_tilt, surface_azimuth, dhi, dni, dni_extra,
     (Eds.), Proc. of First Canadian Solar Radiation Data Workshop, 59.
     Ministry of Supply and Services, Canada.
     '''
+
+    pvl_logger.debug('diffuse_sky.haydavies()')
 
     # if necessary, calculate ratio of titled and horizontal beam irradiance
     if projection_ratio is None:
@@ -807,6 +819,8 @@ def reindl(surface_tilt, surface_azimuth, dhi, dni, ghi, dni_extra,
     hourly tilted surface radiation models. Solar Energy 45(1), 9-17.
     '''
 
+    pvl_logger.debug('diffuse_sky.reindl()')
+
     cos_tt = aoi_projection(surface_tilt, surface_azimuth,
                             solar_zenith, solar_azimuth)
 
@@ -866,6 +880,8 @@ def king(surface_tilt, dhi, ghi, solar_zenith):
     poa_sky_diffuse : numeric
         The diffuse component of the solar radiation.
     '''
+
+    pvl_logger.debug('diffuse_sky.king()')
 
     sky_diffuse = (dhi * ((1 + tools.cosd(surface_tilt))) / 2 + ghi *
                    ((0.012 * solar_zenith - 0.04)) *
@@ -979,8 +995,7 @@ def perez(surface_tilt, surface_azimuth, dhi, dni, dni_extra,
     delta = dhi * airmass / dni_extra
 
     # epsilon is the sky's "clearness"
-    with np.errstate(invalid='ignore'):
-        eps = ((dhi + dni) / dhi + kappa * (z ** 3)) / (1 + kappa * (z ** 3))
+    eps = ((dhi + dni) / dhi + kappa * (z ** 3)) / (1 + kappa * (z ** 3))
 
     # numpy indexing below will not work with a Series
     if isinstance(eps, pd.Series):
@@ -990,8 +1005,15 @@ def perez(surface_tilt, surface_azimuth, dhi, dni, dni_extra,
     # rules. 1 = overcast ... 8 = clear (these names really only make
     # sense for small zenith angles, but...) these values will
     # eventually be used as indicies for coeffecient look ups
-    ebin = np.digitize(eps, (0., 1.065, 1.23, 1.5, 1.95, 2.8, 4.5, 6.2))
-    ebin[np.isnan(eps)] = 0
+    ebin = np.zeros_like(eps, dtype=np.int8)
+    ebin[eps < 1.065] = 1
+    ebin[(eps >= 1.065) & (eps < 1.23)] = 2
+    ebin[(eps >= 1.23) & (eps < 1.5)] = 3
+    ebin[(eps >= 1.5) & (eps < 1.95)] = 4
+    ebin[(eps >= 1.95) & (eps < 2.8)] = 5
+    ebin[(eps >= 2.8) & (eps < 4.5)] = 6
+    ebin[(eps >= 4.5) & (eps < 6.2)] = 7
+    ebin[eps >= 6.2] = 8
 
     # correct for 0 indexing in coeffecient lookup
     # later, ebin = -1 will yield nan coefficients
@@ -1311,7 +1333,7 @@ def dirindex(ghi, ghi_clearsky, dni_clearsky, zenith, times, pressure=101325.,
     Determine DNI from GHI using the DIRINDEX model, which is a modification of
     the DIRINT model with information from a clear sky model.
 
-    DIRINDEX [1] improves upon the DIRINT model by taking into account
+    DIRINDEX [1] improves upon the DIRINT model by taking into account 
     turbidity when used with the Ineichen clear sky model results.
 
     Parameters
@@ -1374,7 +1396,7 @@ def dirindex(ghi, ghi_clearsky, dni_clearsky, zenith, times, pressure=101325.,
                         use_delta_kt_prime=use_delta_kt_prime,
                         temp_dew=temp_dew)
 
-    dni_dirint_clearsky = dirint(ghi_clearsky, zenith, times,
+    dni_dirint_clearsky = dirint(ghi_clearsky, zenith, times, 
                                  pressure=pressure,
                                  use_delta_kt_prime=use_delta_kt_prime,
                                  temp_dew=temp_dew)
