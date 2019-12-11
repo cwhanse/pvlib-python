@@ -1932,8 +1932,8 @@ def sapm_effective_irradiance(poa_direct, poa_diffuse, airmass_absolute, aoi,
 
 
 def singlediode(photocurrent, saturation_current, resistance_series,
-                resistance_shunt, nNsVth, ivcurve_pnts=None,
-                method='lambertw'):
+                resistance_shunt, nNsVth, voltage=np.array([]),
+                ivcurve_pnts=None, method='lambertw'):
     """
     Solve the single-diode model to obtain a photovoltaic IV curve.
 
@@ -1985,9 +1985,13 @@ def singlediode(photocurrent, saturation_current, resistance_series,
         q is the charge of an electron (coulombs).
         0 < nNsVth
 
+    voltage : numeric, default empty
+        Voltage values where points are calculated on the IV curve. Must be
+        sorted in increasing order.
+
     ivcurve_pnts : None or int, default None
-        Number of points in the desired IV curve. If None or 0, no
-        IV curves will be produced.
+        Number of points to calculate along the IV curve. If `voltages` is
+        provides, `ivcurve_pnts` is ignored.
 
     method : str, default 'lambertw'
         Determines the method used to calculate points on the IV curve. The
@@ -2021,9 +2025,9 @@ def singlediode(photocurrent, saturation_current, resistance_series,
 
     Notes
     -----
-    If the method is ``'lambertw'`` then the solution employed to solve the
-    implicit diode equation utilizes the Lambert W function to obtain an
-    explicit function of :math:`V=f(I)` and :math:`I=f(V)` as shown in [2].
+    If the method is ``'lambertw'`` then the solution to the implicit diode
+    equation utilizes the Lambert W function to obtain an explicit function of
+    :math:`V=f(I)` and :math:`I=f(V)` as shown in [2].
 
     If the method is ``'newton'`` then the root-finding Newton-Raphson method
     is used. It should be safe for well behaved IV-curves, but the ``'brentq'``
@@ -2094,13 +2098,21 @@ def singlediode(photocurrent, saturation_current, resistance_series,
             (v_oc + v_mp) / 2.0, *args, method=method.lower()
         )
 
-        # calculate the IV curve if requested using bishop88
-        if ivcurve_pnts:
+        if voltage.size:
+            # calculate the IV curve if requested using bishop88
+            ivcurve_i, ivcurve_v, _ = _singlediode.bishop88_i_from_v(
+                voltage, *args, method=method.lower())
+            calc = True
+        elif ivcurve_pnts:
+            # calculate the IV curve if requested using bishop88
             vd = v_oc * (
                     (11.0 - np.logspace(np.log10(11.0), 0.0,
                                         ivcurve_pnts)) / 10.0
             )
             ivcurve_i, ivcurve_v, _ = _singlediode.bishop88(vd, *args)
+            calc = True
+        else:
+            calc = False
 
     out = OrderedDict()
     out['i_sc'] = i_sc
@@ -2111,7 +2123,7 @@ def singlediode(photocurrent, saturation_current, resistance_series,
     out['i_x'] = i_x
     out['i_xx'] = i_xx
 
-    if ivcurve_pnts:
+    if calc:
 
         out['v'] = ivcurve_v
         out['i'] = ivcurve_i
