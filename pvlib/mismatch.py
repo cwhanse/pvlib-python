@@ -65,13 +65,13 @@ def _iv_series_lambertw(photocurrent, saturation_current, resistance_series,
 
     for p in params:
         if not isinstance(params[p], np.ndarray):
-            pass  # float, int
+            continue  # float, int
         if len(params[p].shape) == 1:
             params[p] = params[p][:, np.newaxis, np.newaxis]
         elif len(params[p].shape) == 2:
             params[p] = params[p][:, :, np.newaxis]
         else:
-            pass  # already 3d
+            continue  # already 3d
 
     il, io, rs, rsh, a = (params[p] for p in params)
 
