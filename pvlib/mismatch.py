@@ -8,26 +8,27 @@ from scipy.optimize.elementwise import find_root
 import singlediode as _singlediode
 
 
-def _iv_series_lambert_v_from_i(I, il, io, rs, rsh, a, neg_v_limit,
+def _iv_series_lambert_v_from_i(current, il, io, rs, rsh, a, neg_v_limit,
                                 ndevices=None, idx=None):
     # solve voltages at each current for each IV curve
     if ndevices is not None:
         # broadcast I to ndevices to apply same current each device
-        I = np.broadcast_to(I[np.newaxis, :], (ndevices, len(I)))
+        current = np.broadcast_to(current[np.newaxis, :],
+                                  (ndevices, len(current)))
     # slice each parameter on its ntimes dimension with idx
     if idx is not None:
         il, io, rs, rsh, a = (il[:, idx], io[:, idx], rs[:, idx], rsh[:, idx],
                               a[:, idx])
 
     voltages = _singlediode._lambertw_v_from_i(
-        I.flatten(), il.flatten(), io.flatten(), rs.flatten(), rsh.flatten(),
-        a.flatten())
+        current.flatten(), il.flatten(), io.flatten(), rs.flatten(),
+        rsh.flatten(), a.flatten())
 
     # apply negative voltage limit
     voltages[voltages < neg_v_limit] = neg_v_limit
 
     # reshape
-    voltages = voltages.reshape(I.shape)
+    voltages = voltages.reshape(current.shape)
     return voltages
 
 
@@ -51,7 +52,7 @@ def _setup_currents(device_isc, string_isc, npts):
 
     '''
     ntimes = len(string_isc)
-    A = np.zeros((ntimes, npts))
+    currents = np.zeros((ntimes, npts))
 
     u = device_isc < string_isc[np.newaxis, :]
 
@@ -67,7 +68,7 @@ def _setup_currents(device_isc, string_isc, npts):
             continue
 
         # Copy original values
-        A[i, :k_i] = vals
+        currents[i, :k_i] = vals
 
         n_fill = npts - k_i
         if n_fill <= 0:
@@ -95,12 +96,12 @@ def _setup_currents(device_isc, string_isc, npts):
         selected = grid[idx]
 
         # Combine and add to A
-        A[i, :] = np.concatenate([vals, selected])
+        currents[i, :] = np.concatenate([vals, selected])
 
     # return sorted in descending order for each time
-    A = -np.sort(-A, axis=1)
+    currents = -np.sort(-currents, axis=1)
 
-    return A
+    return currents
 
 
 def _iv_series_lambertw(photocurrent, saturation_current, resistance_series,
