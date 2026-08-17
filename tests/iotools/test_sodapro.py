@@ -26,16 +26,19 @@ index_monthly = pd.to_datetime(['2020-01-31', '2020-02-29', '2020-03-31',
 
 
 dtypes_mcclear_verbose = [
-    'object', 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
+    # None indicates string, which differs between pandas 2 and 3
+    None, 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
     'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
     'float64', 'float64', 'float64', 'float64', 'float64', 'int64', 'float64',
     'float64', 'float64', 'float64']
 
 dtypes_mcclear = [
-    'object', 'float64', 'float64', 'float64', 'float64', 'float64']
+    # None indicates string, which differs between pandas 2 and 3
+    None, 'float64', 'float64', 'float64', 'float64', 'float64']
 
 dtypes_radiation_verbose = [
-    'object', 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
+    # None indicates string, which differs between pandas 2 and 3
+    None, 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
     'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
     'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
     'float64', 'float64', 'float64', 'float64', 'int64', 'float64', 'float64',
@@ -43,7 +46,8 @@ dtypes_radiation_verbose = [
     'float64', 'float64']
 
 dtypes_radiation = [
-    'object', 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
+    # None indicates string, which differs between pandas 2 and 3
+    None, 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
     'float64', 'float64', 'float64', 'float64']
 
 
@@ -154,7 +158,9 @@ def generate_expected_dataframe(values, columns, index, dtypes):
     expected = pd.DataFrame(values, columns=columns, index=index)
     expected.index.freq = None
     for (col, _dtype) in zip(expected.columns, dtypes):
-        expected[col] = expected[col].astype(_dtype)
+        if _dtype is not None:
+            # for None (string), use inferred type for pandas 2/3 compat
+            expected[col] = expected[col].astype(_dtype)
     return expected
 
 
@@ -185,12 +191,6 @@ def test_read_cams_integrated_unmapped_label():
                                       integrated=True, label='right',
                                       map_variables=False)
     assert_frame_equal(out, expected, check_less_precise=True)
-
-
-def test_parse_cams_deprecated():
-    with pytest.warns(pvlibDeprecationWarning, match='Use read_cams instead'):
-        with open(testfile_radiation_verbose, mode="r") as fbuf:
-            _ = sodapro.parse_cams(fbuf)
 
 
 def test_read_cams_metadata():

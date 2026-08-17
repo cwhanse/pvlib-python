@@ -1,21 +1,20 @@
 import calendar
 import datetime
+import math
 import warnings
+import zoneinfo
+from datetime import timezone
 
 import numpy as np
 import pandas as pd
-
-from .conftest import assert_frame_equal, assert_series_equal
-from numpy.testing import assert_allclose
 import pytest
-import pytz
+from numpy.testing import assert_allclose
 
-from pvlib.location import Location
 from pvlib import solarposition, spa
+from pvlib.location import Location
 
-from .conftest import (
-    requires_ephem, requires_spa_c, requires_numba, requires_pandas_2_0
-)
+from .conftest import (assert_frame_equal, assert_series_equal, requires_ephem,
+                       requires_numba, requires_pandas_2_0, requires_spa_c)
 
 # setup times and locations to be tested.
 times = pd.date_range(start=datetime.datetime(2014, 6, 24),
@@ -38,7 +37,7 @@ def expected_solpos_multi():
 
 @pytest.fixture()
 def expected_rise_set_spa():
-    # for Golden, CO, from NREL SPA website
+    # for Golden, CO, from NLR SPA website
     times = pd.DatetimeIndex([datetime.datetime(2015, 1, 2),
                               datetime.datetime(2015, 8, 2),
                               ]).tz_localize('MST')
@@ -86,8 +85,8 @@ def expected_rise_set_ephem():
                         index=times)
 
 
-# the physical tests are run at the same time as the NREL SPA test.
-# pyephem reproduces the NREL result to 2 decimal places.
+# the physical tests are run at the same time as the NLR SPA test.
+# pyephem reproduces the NLR result to 2 decimal places.
 # this doesn't mean that one code is better than the other.
 
 @requires_spa_c
@@ -142,7 +141,7 @@ def test_spa_python_numpy_physical_dst(expected_solpos, golden):
 
 @pytest.mark.parametrize('delta_t', [65.0, None, np.array([65, 65])])
 def test_sun_rise_set_transit_spa(expected_rise_set_spa, golden, delta_t):
-    # solution from NREL SPA web calculator
+    # solution from NLR SPA web calculator
     south = Location(-35.0, 0.0, tz='UTC')
     times = pd.to_datetime(["1996-07-05", "2004-12-04"], utc=True)
     sunrise = pd.to_datetime(["1996-07-05 07:08:15", "2004-12-04 04:38:57"],
@@ -168,7 +167,7 @@ def test_sun_rise_set_transit_spa(expected_rise_set_spa, golden, delta_t):
                        check_dtype=False  # ignore us/ns dtypes
                        )
 
-    # test for Golden, CO compare to NREL SPA
+    # test for Golden, CO compare to NLR SPA
     result = solarposition.sun_rise_set_transit_spa(
         expected_rise_set_spa.index, golden.latitude, golden.longitude,
         delta_t=delta_t)
@@ -182,6 +181,59 @@ def test_sun_rise_set_transit_spa(expected_rise_set_spa, golden, delta_t):
     assert_frame_equal(expected_rise_set_spa, result_rounded,
                        check_dtype=False  # ignore us/ns dtypes
                        )
+
+
+def test_sun_rise_set_transit_spa_local_day():
+    # GH #2238: the "day of interest" is the *local* calendar day of each
+    # input timestamp.  Evening-local timestamps fall on the next day in
+    # UTC; in v0.11.1 they incorrectly returned the following day's
+    # sunrise/sunset/transit.  All timestamps on the same local day must
+    # give identical results, matching pvlib <= v0.11.0.
+    times = pd.to_datetime(
+        ['2000-01-01 18:00', '2000-01-01 19:00']).tz_localize('Etc/GMT+5')
+    result = solarposition.sun_rise_set_transit_spa(times, 40, -80)
+
+    # every result falls on the local calendar day of the input (2000-01-01)
+    for col in ['sunrise', 'sunset', 'transit']:
+        assert (result[col].dt.date == datetime.date(2000, 1, 1)).all()
+
+    # both inputs share the same local day, so their results are identical
+    for col in ['sunrise', 'sunset', 'transit']:
+        assert result[col].iloc[0] == result[col].iloc[1]
+
+    # known-good values from pvlib v0.11.0 (NLR SPA), rounded to the second
+    expected = pd.DataFrame(
+        {'sunrise': pd.DatetimeIndex(['2000-01-01 07:41:51'] * 2),
+         'sunset': pd.DatetimeIndex(['2000-01-01 17:05:04'] * 2),
+         'transit': pd.DatetimeIndex(['2000-01-01 12:23:23'] * 2)},
+        index=times,
+    )
+    for col in expected.columns:
+        expected[col] = expected[col].dt.tz_localize('Etc/GMT+5')
+
+    result_rounded = pd.DataFrame(index=result.index)
+    for col, data in result.items():
+        result_rounded[col] = data.dt.round('1s')
+
+    assert_frame_equal(result_rounded, expected, check_dtype=False)
+
+    # positive-offset zone: early-morning-local timestamps are the *previous*
+    # calendar day in UTC, the mirror of the case above
+    times = pd.to_datetime(
+        ['2000-07-01 05:00', '2000-07-01 06:00']).tz_localize('Etc/GMT-9')
+    result = solarposition.sun_rise_set_transit_spa(times, 35, 139)
+    for col in ['sunrise', 'sunset', 'transit']:
+        assert (result[col].dt.date == datetime.date(2000, 7, 1)).all()
+        assert result[col].iloc[0] == result[col].iloc[1]
+
+    # midnight-DST zone: local midnight does not exist in America/Santiago on
+    # its 2019-09-08 spring-forward day, so normalizing a tz-aware index would
+    # raise.  The day of interest must still be the local day and not error.
+    times = pd.DatetimeIndex(
+        ['2019-09-08 20:00']).tz_localize('America/Santiago')
+    result = solarposition.sun_rise_set_transit_spa(times, -33.45, -70.66)
+    for col in ['sunrise', 'sunset', 'transit']:
+        assert (result[col].dt.date == datetime.date(2019, 9, 8)).all()
 
 
 @requires_ephem
@@ -343,29 +395,26 @@ def test_pyephem_physical_dst(expected_solpos, golden):
 
 @requires_ephem
 def test_calc_time():
-    import pytz
-    import math
     # validation from USNO solar position calculator online
 
-    epoch = datetime.datetime(1970, 1, 1)
-    epoch_dt = pytz.utc.localize(epoch)
+    epoch = datetime.datetime(1970, 1, 1, tzinfo=timezone.utc)
 
     loc = tus
     loc.pressure = 0
-    actual_time = pytz.timezone(loc.tz).localize(
-        datetime.datetime(2014, 10, 10, 8, 30))
-    lb = pytz.timezone(loc.tz).localize(datetime.datetime(2014, 10, 10, tol))
-    ub = pytz.timezone(loc.tz).localize(datetime.datetime(2014, 10, 10, 10))
+    tz = zoneinfo.ZoneInfo(loc.tz)
+    actual_time = datetime.datetime(2014, 10, 10, 8, 30, tzinfo=tz)
+    lb = datetime.datetime(2014, 10, 10, tol, tzinfo=tz)
+    ub = datetime.datetime(2014, 10, 10, 10, tzinfo=tz)
     alt = solarposition.calc_time(lb, ub, loc.latitude, loc.longitude,
                                   'alt', math.radians(24.7))
     az = solarposition.calc_time(lb, ub, loc.latitude, loc.longitude,
                                  'az', math.radians(116.3))
-    actual_timestamp = (actual_time - epoch_dt).total_seconds()
+    actual_timestamp = (actual_time - epoch).total_seconds()
 
     assert_allclose((alt.replace(second=0, microsecond=0) -
-                     epoch_dt).total_seconds(), actual_timestamp)
+                     epoch).total_seconds(), actual_timestamp)
     assert_allclose((az.replace(second=0, microsecond=0) -
-                     epoch_dt).total_seconds(), actual_timestamp)
+                     epoch).total_seconds(), actual_timestamp)
 
 
 @requires_ephem
@@ -672,7 +721,7 @@ def test_analytical_azimuth():
 def test_hour_angle():
     """
     Test conversion from hours to hour angles in degrees given the following
-    inputs from NREL SPA calculator at Golden, CO
+    inputs from NLR SPA calculator at Golden, CO
     date,times,eot,sunrise,sunset
     1/2/2015,7:21:55,-3.935172,-70.699400,70.512721
     1/2/2015,16:47:43,-4.117227,-70.699400,70.512721
@@ -687,7 +736,7 @@ def test_hour_angle():
     eot = np.array([-3.935172, -4.117227, -4.026295])
     hourangle = solarposition.hour_angle(times, longitude, eot)
     expected = (-70.682338, 70.72118825000001, 0.000801250)
-    # FIXME: there are differences from expected NREL SPA calculator values
+    # FIXME: there are differences from expected NLR SPA calculator values
     # sunrise: 4 seconds, sunset: 48 seconds, transit: 0.2 seconds
     # but the differences may be due to other SPA input parameters
     assert np.allclose(hourangle, expected)
@@ -715,6 +764,15 @@ def test_hour_angle_with_tricky_timezones():
     # GH 2132
     # tests timezones that have a DST shift at midnight
 
+    try:  # transitive dependency to pytz through pandas < 3
+        import pytz
+        _NonExistentTimeError = pytz.exceptions.NonExistentTimeError
+        _AmbiguousTimeError = pytz.exceptions.AmbiguousTimeError
+    except ImportError:  # pragma: no cover
+        # pandas 3.x dropped pytz; these are now raised as ValueError
+        _NonExistentTimeError = ValueError
+        _AmbiguousTimeError = ValueError
+
     eot = np.array([-3.935172, -4.117227, -4.026295, -4.026295])
 
     longitude = 70.6693
@@ -726,7 +784,7 @@ def test_hour_angle_with_tricky_timezones():
     ]).tz_localize('America/Santiago', nonexistent='shift_forward')
 
     with pytest.raises((
-        pytz.exceptions.NonExistentTimeError,  # pandas 1.x, 2.x
+        _NonExistentTimeError,  # pandas 1.x, 2.x
         ValueError,  # pandas 3.x
     )):
         times.normalize()
@@ -743,7 +801,7 @@ def test_hour_angle_with_tricky_timezones():
     ]).tz_localize('America/Havana', ambiguous=[True, True, False, False])
 
     with pytest.raises((
-        pytz.exceptions.AmbiguousTimeError,  # pandas 1.x, 2.x
+        _AmbiguousTimeError,  # pandas 1.x, 2.x
         ValueError,  # pandas 3.x
     )):
         solarposition.hour_angle(times, longitude, eot)

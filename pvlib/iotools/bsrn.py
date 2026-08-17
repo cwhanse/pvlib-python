@@ -10,7 +10,6 @@ import io
 import os
 
 from pvlib.tools import _file_context_manager
-from pvlib._deprecation import deprecated
 
 BSRN_FTP_URL = "ftp.bsrn.awi.de"
 
@@ -42,10 +41,9 @@ BSRN_LR0300_COLUMNS = ['day', 'minute', 'gri', 'gri_std', 'gri_min', 'gri_max',
 BSRN_LR0500_COLUMNS = ['day', 'minute', 'uva_global', 'uva_global_std',
                        'uva_global_min', 'uva_global_max', 'uvb_direct',
                        'uvb_direct_std', 'uvb_direct_min', 'uvb_direct_max',
-                       'empty', 'empty', 'empty', 'empty',
+                       'empty', 'empty', 'empty', 'empty', 'empty', 'empty',
                        'uvb_global', 'uvb_global_std', 'uvb_global_min',
                        'uvb_global_max', 'uvb_diffuse', 'uvb_diffuse_std',
-                       'uvb_diffuse', 'uvb_diffuse_std',
                        'uvb_diffuse_min', 'uvb_diffuse_max',
                        'uvb_reflected', 'uvb_reflected_std',
                        'uvb_reflected_min', 'uvb_reflected_max']
@@ -322,7 +320,7 @@ def _parse_bsrn(fbuf, logical_records=('0100',)):
         LR_0100 = LR_0100.reindex(sorted(LR_0100.columns), axis='columns')
         LR_0100.columns = BSRN_LR0100_COLUMNS
         # Set datetime index
-        LR_0100.index = (start_date+pd.to_timedelta(LR_0100['day']-1, unit='d')
+        LR_0100.index = (start_date+pd.to_timedelta(LR_0100['day']-1, unit='D')
                          + pd.to_timedelta(LR_0100['minute'], unit='minutes'))
         # Drop empty, minute, and day columns
         LR_0100 = LR_0100.drop(columns=['empty', 'day', 'minute'])
@@ -336,7 +334,7 @@ def _parse_bsrn(fbuf, logical_records=('0100',)):
                               na_values=[-999.0, -99.9],
                               colspecs=BSRN_LR0300_COL_SPECS,
                               names=BSRN_LR0300_COLUMNS)
-        LR_0300.index = (start_date+pd.to_timedelta(LR_0300['day']-1, unit='d')
+        LR_0300.index = (start_date+pd.to_timedelta(LR_0300['day']-1, unit='D')
                          + pd.to_timedelta(LR_0300['minute'], unit='minutes'))
         LR_0300 = LR_0300.drop(columns=['day', 'minute']).astype(float)
         dfs.append(LR_0300)
@@ -353,13 +351,13 @@ def _parse_bsrn(fbuf, logical_records=('0100',)):
         # Sort columns to match original order and assign column names
         LR_0500 = LR_0500.reindex(sorted(LR_0500.columns), axis='columns')
         LR_0500.columns = BSRN_LR0500_COLUMNS
-        LR_0500.index = (start_date+pd.to_timedelta(LR_0500['day']-1, unit='d')
+        LR_0500.index = (start_date+pd.to_timedelta(LR_0500['day']-1, unit='D')
                          + pd.to_timedelta(LR_0500['minute'], unit='minutes'))
         LR_0500 = LR_0500.drop(columns=['empty', 'day', 'minute'])
         dfs.append(LR_0500)
 
     if len(dfs):
-        data = pd.concat(dfs, axis='columns')
+        data = pd.concat(dfs, axis='columns', sort=False)
     else:
         data = _empty_dataframe_from_logical_records(logical_records)
         metadata = {}
@@ -379,7 +377,7 @@ def read_bsrn(filename, logical_records=('0100',)):
 
     BSRN files are freely available and can be accessed via FTP [3]_. The
     username and password for the BSRN FTP server can be obtained for free as
-    described in the BSRN's Data Release Guidelines [3]_.
+    described in the BSRN's Data Release Guidelines [4]_.
 
     Parameters
     ----------
@@ -463,7 +461,3 @@ def read_bsrn(filename, logical_records=('0100',)):
     with open_func(filename, mode) as f:
         content = _parse_bsrn(f, logical_records)
     return content
-
-
-parse_bsrn = deprecated(since="0.13.0", name="parse_bsrn",
-                        alternative="read_bsrn")(read_bsrn)

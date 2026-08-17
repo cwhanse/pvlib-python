@@ -72,6 +72,7 @@ jobs:
         # but what we need is the hypothetical merge commit from the PR:
         with:
           ref: "refs/pull/${{ github.event.number }}/merge"
+          allow-unsafe-pr-checkout: true  # see above discussion; manual triggering makes this ok
 
       - uses: actions/checkout@v4
         if: github.event_name == 'push'
@@ -96,7 +97,7 @@ jobs:
         shell: bash -l {0}  # necessary for conda env to be active
         env:
           # copy GitHub Secrets into environment variables for the tests to access
-          NREL_API_KEY: ${{ secrets.NRELAPIKEY }}
+          NLR_API_KEY: ${{ secrets.NRELAPIKEY }}
           SOLARANYWHERE_API_KEY: ${{ secrets.SOLARANYWHERE_API_KEY }}
           BSRN_FTP_USERNAME: ${{ secrets.BSRN_FTP_USERNAME }}
           BSRN_FTP_PASSWORD: ${{ secrets.BSRN_FTP_PASSWORD }}
