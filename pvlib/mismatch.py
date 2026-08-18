@@ -175,6 +175,7 @@ def _iv_series_lambertw(photocurrent, saturation_current, resistance_series,
     # Remove idx and use preserve_shape once available in find_root
     # https://github.com/scipy/scipy/issues/24869
     idx = np.arange(ntimes)
+
     def optfn(current, idx):
         # current is ntimes only since it is common for all devices.
         # other parameters are ntimes x ndevices
@@ -195,19 +196,19 @@ def _iv_series_lambertw(photocurrent, saturation_current, resistance_series,
     current_pts = _setup_currents(current_bkpts, string_isc, npts)
 
     # shape all arrays to be ndevices x ntimes x ncurrents
-    I = np.repeat(current_pts[np.newaxis, :, :], ndevices, axis=0)
-    I, IL, I0, Rs, Rsh, a = np.broadcast_arrays(
-        I, IL[:, :, np.newaxis], I0[:, :, np.newaxis], Rs[:, :, np.newaxis],
+    curs = np.repeat(current_pts[np.newaxis, :, :], ndevices, axis=0)
+    curs, IL, I0, Rs, Rsh, a = np.broadcast_arrays(
+        curs, IL[:, :, np.newaxis], I0[:, :, np.newaxis], Rs[:, :, np.newaxis],
         Rsh[:, :, np.newaxis], a[:, :, np.newaxis])
 
     # solve voltages at each current for each IV curve
     voltages = _iv_series_lambert_v_from_i(
-        I, IL, I0, Rs, Rsh, a, neg_v_limit)
+        curs, IL, I0, Rs, Rsh, a, neg_v_limit)
 
     # add voltage across devices to get series voltage
     voltage_sum = voltages.sum(axis=0)
 
     # drop currents dimension for devices
-    I = I[0, :, :]
+    curs = curs[0, :, :]
 
-    return voltage_sum, I
+    return voltage_sum, curs

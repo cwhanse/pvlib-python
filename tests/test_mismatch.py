@@ -29,7 +29,8 @@ def test__iv_series_lambertw_isc():
     neg_v_limit = -5.
     expected_isc = _singlediode._lambertw_i_from_v(-neg_v_limit, IL[1], Io, Rs,
                                                    Rsh, nNsVth)
-    vs, cs = _iv_series_lambertw(IL, Io, Rs, Rsh, nNsVth, neg_v_limit=neg_v_limit,
+    vs, cs = _iv_series_lambertw(IL, Io, Rs, Rsh, nNsVth,
+                                 neg_v_limit=neg_v_limit,
                                  npts=npts)
     assert vs.shape == cs.shape
     assert vs.shape == (1, npts)  # ntimes x npts
@@ -50,15 +51,16 @@ def test__iv_series_lambertw_voc():
     neg_v_limit = -5.
     expected_voc = _singlediode._lambertw_v_from_i(0, IL, Io, Rs,
                                                    Rsh, nNsVth)
-    vs, cs = _iv_series_lambertw(IL, Io, Rs, Rsh, nNsVth, neg_v_limit=neg_v_limit,
+    vs, cs = _iv_series_lambertw(IL, Io, Rs, Rsh, nNsVth,
+                                 neg_v_limit=neg_v_limit,
                                  npts=npts)
-    
+
     assert np.isclose(vs[0, -1], expected_voc.sum())
     assert np.isclose(cs[0, -1], 0.)
 
 
 def test__iv_series_lambertw_breakpoints():
-    
+
     # 2 devices, 1 time
     # Voc should be equal to the sum of Voc for each device
     IL = np.array([[1.0], [6.01]])
@@ -68,10 +70,11 @@ def test__iv_series_lambertw_breakpoints():
     Rsh = 1000.
     npts = 10
     neg_v_limit = -5.
-    
+
     cur_breakpoints = _singlediode._lambertw_i_from_v(neg_v_limit, IL, Io, Rs,
                                                       Rsh, nNsVth)
-    vs, cs = _iv_series_lambertw(IL, Io, Rs, Rsh, nNsVth, neg_v_limit=neg_v_limit,
+    vs, cs = _iv_series_lambertw(IL, Io, Rs, Rsh, nNsVth,
+                                 neg_v_limit=neg_v_limit,
                                  npts=npts)
     # current cs should contain all breakpoints less than string_isc
     assert np.isin(cur_breakpoints[cur_breakpoints < cs[0, 0]], cs).all()
