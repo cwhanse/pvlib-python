@@ -5,11 +5,13 @@ conditions.
 """
 import numpy as np
 from scipy.optimize.elementwise import find_root
-import singlediode as _singlediode
+from pvlib import singlediode as _singlediode
 
 
 def _iv_series_lambert_v_from_i(current, il, io, rs, rsh, a, neg_v_limit,
                                 ndevices=None, idx=None):
+    # wrapper for pvlib._singlediode._lambertw_v_from_i, handles
+    # dimensions expected in series calculation
     # solve voltages at each current for each IV curve
     if ndevices is not None:
         # broadcast I to ndevices to apply same current each device
@@ -32,9 +34,10 @@ def _iv_series_lambert_v_from_i(current, il, io, rs, rsh, a, neg_v_limit,
     return voltages
 
 
-def _setup_currents(device_isc, string_isc, npts):
-    r''' Form array of currents. Array of currents will contain all values
-    from device_isc which are less than string_isc.
+def _setup_currents(current_bkpts, string_isc, npts):
+    r''' Form array of currents from string_isc down to 0.
+    The array of currents will contain all values
+    from current_bkpts which are less than string_isc.
 
     Parameters
     ----------
@@ -54,12 +57,12 @@ def _setup_currents(device_isc, string_isc, npts):
     ntimes = len(string_isc)
     currents = np.zeros((ntimes, npts))
 
-    u = device_isc < string_isc[np.newaxis, :]
+    u = current_bkpts < string_isc[np.newaxis, :]
 
     # have to loop on ntimes since count of device_isc < string_isc may
     # differ for each time
     for i in range(ntimes):
-        vals = np.unique(device_isc[u[:, i], i])
+        vals = np.unique(current_bkpts[u[:, i], i])
         # ensure string_isc and 0. are added
         vals = np.append(vals, [string_isc[i], 0.])
         k_i = len(vals)
@@ -156,21 +159,20 @@ def _iv_series_lambertw(photocurrent, saturation_current, resistance_series,
 
     ndevices, ntimes = IL.shape
 
-    # solve for Isc
-    # Isc for each device
-    device_isc = _singlediode._lambertw_i_from_v(
+    # solve for current at negative voltage limit for each device.
+    # these currents create breakpoints in the series IV curve
+    current_bkpts = _singlediode._lambertw_i_from_v(
         neg_v_limit, IL, I0, Rs, Rsh, a)
 
-    # find Isc for series of devices
-    # 1d array contains bounds for each time
-    # add/substract eps in case max==min
-    max_isc = device_isc.max(axis=0) * 1.01
-    min_isc = device_isc.min(axis=0) * 0.99
+    # find Isc for string IV curve
+    # bounds, 1d array for each time
+    max_isc = current_bkpts.max(axis=0) * 1.01
+    min_isc = current_bkpts.min(axis=0) * 0.99
 
-    # use index idx so that find_root can slice arguments
-    # internally find_root will slice current as each element converges
-    # as an argument, idx lets find_root also slice the other parameters
-    # remove idx and use preserve_shape once available in find_root
+    # Use an index idx so that find_root can slice arguments
+    # Internally find_root will slice current as each element converges
+    # As an argument, idx lets find_root also slice the other parameters
+    # Remove idx and use preserve_shape once available in find_root
     # https://github.com/scipy/scipy/issues/24869
     idx = np.arange(ntimes)
     def optfn(current, idx):
@@ -187,9 +189,10 @@ def _iv_series_lambertw(photocurrent, saturation_current, resistance_series,
         (min_isc, max_isc), args=(idx,))
     string_isc = isc_result.x  # 1d in ntimes
 
-    # discretize current from max(Isc) down to 0. at each time step
+    # discretize current from string_isc down to 0 at each time step
     # Include each device Isc (except the highest) so that the series IV curve
-    current_pts = _setup_currents(device_isc, string_isc, npts)
+    # includes the breakpoints
+    current_pts = _setup_currents(current_bkpts, string_isc, npts)
 
     # shape all arrays to be ndevices x ntimes x ncurrents
     I = np.repeat(current_pts[np.newaxis, :, :], ndevices, axis=0)
