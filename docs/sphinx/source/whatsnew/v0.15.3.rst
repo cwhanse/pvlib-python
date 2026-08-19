@@ -68,8 +68,6 @@ Enhancements
 * Accelerate :py:func:`~pvlib.bifacial.utils.vf_ground_sky_2d_integ` by one or
   two orders of magnitude. This also makes :py:mod:`pvlib.bifacial.infinite_sheds` faster.
   (:pull:`2740`)
-* Add `:py:mod:`~pvlib.mismatch` to contain functions for computing DC power
-  and IV curves accounting for electrical mismatch (:pull:`2718`)
 
 
 Documentation
@@ -122,4 +120,3 @@ Contributors
 * Leonardo Scappatura (:ghuser:`Leonard013`)
 * Carolina Crespo (:ghuser:`cbcrespo`)
 * Ioannis Sifnaios (:ghuser:`IoannisSifnaios`)
-* Cliff Hansen (:ghuser:`cwhanse`)
