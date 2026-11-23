@@ -2,6 +2,9 @@
 Get .PAN or .OND file data into a nested dictionary.
 """
 
+import codecs
+import io
+
 
 def _num_type(value):
     """
@@ -101,6 +104,25 @@ def _parse_panond(fbuf):
     return component_info
 
 
+def _decode_panond(raw):
+    """
+    Decode the bytes of a .pan or .ond file: UTF-8 if there is a byte order
+    mark or the bytes are valid UTF-8, otherwise Windows-1252.
+    """
+    if raw.startswith(codecs.BOM_UTF8):
+        encodings = ['utf-8-sig']
+    else:
+        encodings = ['utf-8', 'cp1252']
+    for encoding in encodings:
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    raise ValueError(
+        f"Could not decode the file as {' or '.join(encodings)}. "
+        "Specify the encoding with the `encoding` parameter.")
+
+
 def read_panond(filename, encoding=None):
     """
     Retrieve Module or Inverter data from a .pan or .ond text file,
@@ -112,8 +134,10 @@ def read_panond(filename, encoding=None):
         Name or path of a .pan/.ond file
 
     encoding : str, optional
-        Encoding of the file.  Some files may require specifying
-        ``encoding='utf-8-sig'`` to import correctly.
+        Encoding of the file. If not specified, the encoding is detected:
+        UTF-8 if the file starts with a UTF-8 byte order mark or is valid
+        UTF-8, otherwise Windows-1252 (cp1252). The result does not depend on
+        the platform's default encoding.
 
     Returns
     -------
@@ -122,13 +146,25 @@ def read_panond(filename, encoding=None):
         file. The value of datatypes are assumed during reading. The value
         units are the default used by PVsyst.
 
+    Raises
+    ------
+    ValueError
+        If ``encoding`` is not specified and the file can be decoded neither
+        as UTF-8 nor as Windows-1252.
+
+    See Also
+    --------
+    pvlib.inverter.ond_to_sandia_inv
+
     Notes
     -----
     The parser is intended for use with .pan and .ond files that were created
     for use by PVsyst. At time of publication, no documentation for these
     files was available. So, this parser is based on inferred logic, rather
     than anything specified by PVsyst.  At time of creation, tested
-    .pan/.ond files used UTF-8 encoding.
+    .pan/.ond files used UTF-8 encoding. PVsyst has used UTF-8 since
+    version 6.80; older files and some files from manufacturers use
+    Windows-1252.
 
     The parser assumes that the file being parsed uses indentation of two
     spaces ('  ') to create a new level in a nested dictionary, and that
@@ -148,7 +184,12 @@ def read_panond(filename, encoding=None):
     that event the user would need to convert to the desired datatype.
     """
 
-    with open(filename, "r", encoding=encoding) as fbuf:
-        content = _parse_panond(fbuf)
+    if encoding is None:
+        with open(filename, "rb") as fbuf:
+            raw = fbuf.read()
+        content = _parse_panond(io.StringIO(_decode_panond(raw)))
+    else:
+        with open(filename, "r", encoding=encoding) as fbuf:
+            content = _parse_panond(fbuf)
 
     return content
